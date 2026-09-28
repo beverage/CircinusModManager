@@ -21,7 +21,7 @@ use circinus_core::weight::{self, Weight};
 use circinus_core::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -412,6 +412,57 @@ pub struct UpdateInfo {
     pub source: Source,
 }
 
+/// What Circinus offers updates for: a Steam mod, which a Force update replaces in Steam's own
+/// folder, and a copy Circinus downloaded or kept, which it replaces in Mods. Other local folders
+/// with a Workshop id, such as dev builds, never go on the list.
+pub fn updatable(m: &ModInfo) -> bool {
+    m.invalid.is_none() && m.published_file_id.is_some() && matches!(m.source, Source::Workshop | Source::SteamCmd)
+}
+
+/// The Workshop has something newer than what is on disk, allowing a minute for clocks.
+fn behind(remote_updated: u64, m: &ModInfo) -> bool {
+    remote_updated > m.modified + 60
+}
+
+/// Keep only the updates that still apply: the mod is still installed, can still be updated, and
+/// is still older than what the Workshop had at the check. The check only runs when asked, so
+/// without this a mod Steam updated after the check stayed listed until the next check, and
+/// "Update all" downloaded it again.
+fn still_behind(updates: &mut Vec<UpdateInfo>, mods: &[ModInfo]) {
+    let by_uid: HashMap<&str, &ModInfo> = mods.iter().map(|m| (m.uid.as_str(), m)).collect();
+    updates.retain_mut(|u| match by_uid.get(u.uid.as_str()) {
+        Some(m) if updatable(m) && m.published_file_id == Some(u.published_file_id) && behind(u.remote_updated, m) => {
+            u.local_modified = m.modified;
+            u.source = m.source;
+            true
+        }
+        _ => false,
+    });
+}
+
+/// A Force update's Workshop id, with Steam's folder when the download replaces Steam's copy
+/// (none means `Mods/<id>`).
+pub type UpdateTarget = (u64, Option<String>);
+
+/// Where a Force update of `m` goes, or why it has none. A Steam mod is replaced in Steam's own
+/// folder, which has to be in the Workshop folder Circinus reads, since that path is handed to
+/// code that deletes and rewrites it. A copy Circinus made is replaced in Mods, where it already
+/// is. A broken download can be updated, since that is how it gets fixed; other local folders
+/// cannot.
+fn update_target(m: &ModInfo, workshop_dir: Option<&Path>) -> std::result::Result<UpdateTarget, String> {
+    let Some(id) = m.published_file_id else {
+        return Err(format!("{} has no Workshop id, so there is nothing to update it from", m.name));
+    };
+    match m.source {
+        Source::Workshop => match workshop_dir {
+            Some(ws) if m.path == ws.join(id.to_string()) => Ok((id, Some(m.path.display().to_string()))),
+            _ => Err(format!("Circinus could not tell where Steam keeps {}, so it was left alone", m.name)),
+        },
+        Source::SteamCmd => Ok((id, None)),
+        _ => Err(format!("{} is a local folder, not one Steam or Circinus downloaded, so it was left alone", m.name)),
+    }
+}
+
 /// Texture collisions kept in a snapshot; the rest are available through the analyzer commands.
 const MAX_COLLISIONS: usize = 3000;
 
@@ -710,6 +761,7 @@ impl App {
         self.recompile();
         self.read_mods_config();
         self.refresh_changes();
+        self.refresh_updates();
         self.note_arrivals();
         self.store_baseline();
         let shallow: Vec<ModInfo> = self.mods.iter().filter(|m| self.shallow.contains(&m.uid)).cloned().collect();
@@ -725,6 +777,7 @@ impl App {
             self.pending_stamps.remove(u);
         }
         self.refresh_changes();
+        self.refresh_updates();
         self.store_baseline();
         Ok(n)
     }
@@ -1189,17 +1242,36 @@ impl App {
 
     /// Workshop ids of every installed mod that came from the Workshop or SteamCMD.
     pub fn workshop_ids(&self) -> Vec<(String, u64)> {
-        self.mods.iter().filter(|m| m.invalid.is_none()).filter_map(|m| m.published_file_id.map(|id| (m.uid.clone(), id))).collect()
+        self.mods.iter().filter(|m| updatable(m)).filter_map(|m| m.published_file_id.map(|id| (m.uid.clone(), id))).collect()
+    }
+
+    /// Where a Force update of each mod goes (see `update_target`), and the ones refused with
+    /// the reason.
+    pub fn update_targets(&self, uids: &[String]) -> (Vec<UpdateTarget>, Vec<(u64, String)>) {
+        let mut targets = Vec::new();
+        let mut refused = Vec::new();
+        for m in uids.iter().filter_map(|uid| self.mods.iter().find(|m| &m.uid == uid)) {
+            match update_target(m, self.locations.workshop_dir.as_deref()) {
+                Ok(t) => targets.push(t),
+                Err(why) => refused.push((m.published_file_id.unwrap_or(0), why)),
+            }
+        }
+        (targets, refused)
+    }
+
+    /// Bring the update list in line with the mods as they are now; see `still_behind`.
+    fn refresh_updates(&mut self) {
+        still_behind(&mut self.updates, &self.mods);
     }
 
     /// Compare Workshop `time_updated` with what is on disk.
     pub fn apply_update_check(&mut self, items: &[WorkshopItem]) -> usize {
         let by_id: HashMap<u64, &WorkshopItem> = items.iter().map(|i| (i.published_file_id, i)).collect();
         let mut out = Vec::new();
-        for m in self.mods.iter().filter(|m| m.invalid.is_none()) {
+        for m in self.mods.iter().filter(|m| updatable(m)) {
             let Some(id) = m.published_file_id else { continue };
             let Some(item) = by_id.get(&id) else { continue };
-            if item.time_updated > m.modified + 60 {
+            if behind(item.time_updated, m) {
                 out.push(UpdateInfo { uid: m.uid.clone(), published_file_id: id, name: m.name.clone(), local_modified: m.modified, remote_updated: item.time_updated, source: m.source });
             }
         }
@@ -1394,6 +1466,42 @@ mod tests {
         // Settings with no such field at all get the default, before any migration runs.
         let fresh: Settings = serde_json::from_str("{}").unwrap();
         assert!(fresh.check_for_updates);
+    }
+
+    fn installed(path: &str, source: Source, id: Option<u64>, modified: u64) -> ModInfo {
+        ModInfo { uid: path.into(), path: PathBuf::from(path), name: path.into(), source, published_file_id: id, modified, ..Default::default() }
+    }
+
+    fn update_for(m: &ModInfo, remote_updated: u64) -> UpdateInfo {
+        UpdateInfo { uid: m.uid.clone(), published_file_id: m.published_file_id.unwrap(), name: m.name.clone(), local_modified: m.modified, remote_updated, source: m.source }
+    }
+
+    /// A developer's build in Mods carries the Workshop id its repo tracks and must not be offered
+    /// an update; a mod Steam updated after the check, or one that has gone, drops off the list.
+    #[test]
+    fn the_update_list_holds_only_what_is_still_behind() {
+        let steam = installed("/ws/1", Source::Workshop, Some(1), 100);
+        let ours = installed("/mods/2", Source::SteamCmd, Some(2), 100);
+        let dev = installed("/mods/Dev", Source::Local, Some(3), 100);
+        let mut updated = installed("/ws/4", Source::Workshop, Some(4), 100);
+        let gone = installed("/mods/5", Source::SteamCmd, Some(5), 100);
+        let mut updates: Vec<UpdateInfo> = [&steam, &ours, &dev, &updated, &gone].iter().map(|m| update_for(m, 1_000)).collect();
+        updated.modified = 2_000;
+        still_behind(&mut updates, &[steam, ours, dev, updated]);
+        assert_eq!(updates.iter().map(|u| u.published_file_id).collect::<Vec<_>>(), vec![1, 2]);
+    }
+
+    #[test]
+    fn force_update_targets_the_folder_the_mod_is_in() {
+        let ws = PathBuf::from("/lib/steamapps/workshop/content/294100");
+        let steam = installed(&ws.join("7").to_string_lossy(), Source::Workshop, Some(7), 0);
+        assert_eq!(update_target(&steam, Some(&ws)), Ok((7, Some(ws.join("7").display().to_string()))));
+        assert!(update_target(&steam, None).is_err(), "with no Workshop folder there is no telling where Steam keeps it");
+        assert_eq!(update_target(&installed("/game/Mods/8", Source::SteamCmd, Some(8), 0), Some(&ws)), Ok((8, None)));
+        for source in [Source::Local, Source::Git] {
+            assert!(update_target(&installed("/game/Mods/Dev", source, Some(9), 0), Some(&ws)).is_err(), "{source:?} folders are never updated");
+        }
+        assert!(update_target(&installed("/game/Mods/Plain", Source::SteamCmd, None, 0), Some(&ws)).is_err());
     }
 
     fn write(p: &std::path::Path, s: &str) {

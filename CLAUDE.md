@@ -284,6 +284,30 @@ runs the real installer over the machine being developed on. `tauri::is_dev()` i
   a link to a workspace copies as its files rather than as a link that would dangle.
   `Issue::DuplicatePackageId` had to change with it: two copies of one mod is now something a
   user does on purpose, and "RimWorld picks one copy and ignores the rest" was never true of it.
+- Force update replaces a mod in the folder it is installed in. It used to put every download in
+  `Mods/<id>`, and by the `_steam` rule above the game then loads that copy, so a Force update of
+  a Steam mod left it stuck at that version: later Steam updates went into a folder the game no
+  longer read. A Steam mod is now replaced in Steam's own folder
+  (`SteamCmd::replace_workshop_copy`), and a copy Circinus made is replaced in Mods. Steam's
+  `appworkshop_294100.acf` is never written, because Steam rewrites it while it runs, so Steam's
+  record names the old version until its next check. Nothing is replaced while Steam's staging
+  folder for the item exists. Other local folders never get Force update: every build of a
+  published mod carries `PublishedFileId.txt`, so the file alone does not mean the folder is a
+  SteamCMD download. `scan` requires a real folder named after the Workshop id, which is what
+  `collect` and *Keep my own copy* create (`PARSER_VERSION` 6). The update list uses the same rule
+  and is pruned on every rescan, because the check only runs when asked and its rows used to stay
+  after Steam had already updated the mod.
+- SteamCMD keeps its own `appworkshop_294100.acf` and reuses identical chunks it believes are
+  already on disk when it builds a download. An item moved to Mods but still listed there is
+  harmless until a later item shares a file with it (Vanilla Expanded Framework and Debug
+  Assistance ship the same `System.Buffers.dll`). That item's download then reads the file from
+  the missing folder and fails with "Missing game files", and SteamCMD validates everything it
+  lists and downloads every missing item again. `collect` removes each item from the list as it
+  moves it, and `forget_everything` clears the list and the content folder before every batch.
+  Before that, installs collected hundreds of megabytes of unrequested copies, the item that hit
+  the missing file failed, and other downloads in the batch slowed down.
+  `examples/steamcmd_lab.rs` reproduces this against the real SteamCMD, with a control that fails
+  the old way and the fixed flow beside it.
 - `defs`: builds the document the game builds — every active mod's Defs merged in load order,
   every PatchOperation applied in load order, then Name/ParentName inheritance — with the origin
   of every node recorded, so "who wins this value" has an answer. `defs::xpath` is XPath 1.0 as

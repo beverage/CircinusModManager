@@ -51,6 +51,9 @@
     if (c.publishedFileId) openUrl(`https://steamcommunity.com/sharedfiles/filedetails/changelog/${c.publishedFileId}`);
   }
   const redownloadable = $derived(store.changes.filter((c) => c.kind !== "removed" && c.publishedFileId && (c.source === "workshop" || c.source === "steamcmd")));
+  /** Most of this list is updates Steam has already installed, so "Update all" takes only the
+   *  mods the last Workshop check found out of date. */
+  const behind = $derived(redownloadable.filter((c) => store.updateByUid.has(c.uid)));
 </script>
 
 <div class="scrim" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) close(); }}>
@@ -107,7 +110,7 @@
                 </span>
                 <span class="acts">
                   {#if c.publishedFileId}<button class="ib" title="Workshop changelog" onclick={() => changelog(c)}>{@html I.link}</button>{/if}
-                  {#if c.kind !== "removed" && c.publishedFileId && (c.source === "workshop" || c.source === "steamcmd")}<button class="ib" title="Re-download with SteamCMD" onclick={() => store.queueIds([c.publishedFileId!])}>{@html I.download}</button>{/if}
+                  {#if c.kind !== "removed" && c.publishedFileId && (c.source === "workshop" || c.source === "steamcmd")}<button class="ib" title={c.source === "workshop" ? "Force update: download the current version into Steam's folder" : "Force update: replace your copy in Mods with the current version"} onclick={() => store.updateMods([c.uid])}>{@html I.download}</button>{/if}
                   {#if c.kind !== "removed"}<button class="btn sm" onclick={() => show(c)}>Show</button>{/if}
                 </span>
               </div>
@@ -123,7 +126,7 @@
 
     <div class="ft">
       <span class="sp"></span>
-      {#if redownloadable.length > 1}<button class="btn" onclick={() => store.queueIds(redownloadable.map((c) => c.publishedFileId!))}>{@html I.download}Re-download all {redownloadable.length}</button>{/if}
+      {#if behind.length > 1}<button class="btn" title="Updates the mods the last Workshop check found out of date" onclick={() => store.updateMods(behind.map((c) => c.uid))}>{@html I.download}Update all {behind.length}</button>{/if}
       <button class="btn primary" onclick={() => store.acknowledgeChanges()}>{@html I.check}Got it, clear the list</button>
     </div>
   </div>

@@ -37,7 +37,7 @@
         <div class="row"><span class="st bad">{@html I.error}</span><span>The download manager did not answer: <span class="mono">{store.downloadsError}</span></span></div>
         <div class="ctl"><button class="btn sm" onclick={() => store.refreshDownloads()}>{@html I.refresh}Try again</button></div>
       {:else if q?.steamcmdInstalled}
-        <div class="row"><span class="st ok">{@html I.check}</span><span>Installed. Downloads use an anonymous Steam login and land in your Mods folder as <span class="mono">&lt;workshop id&gt;</span> with a <span class="mono">PublishedFileId.txt</span>, so Circinus knows where they came from.</span></div>
+        <div class="row"><span class="st ok">{@html I.check}</span><span>Installed. Downloads use an anonymous Steam login and land in your Mods folder as <span class="mono">&lt;workshop id&gt;</span> with a <span class="mono">PublishedFileId.txt</span>, so Circinus knows where they came from. A Force update of a Steam mod goes into Steam's own folder instead, in place of Steam's copy.</span></div>
         {#if st}
           <dl class="paths">
             <dt>Tool</dt><dd><button class="lnk mono" title="Show in your file manager" onclick={() => revealPath(st.exe)}>{st.exe}</button></dd>
@@ -94,7 +94,7 @@
       {/if}
       <button class="btn sm" onclick={() => store.checkUpdates()}>{@html I.refresh}Check Workshop for updates</button>
       {#if updates.length}
-        <button class="btn sm" onclick={() => store.queueIds(updates.map((u) => u.publishedFileId))}>Re-download {updates.length} updated mod{updates.length === 1 ? "" : "s"}</button>
+        <button class="btn sm" title="Steam mods are updated in Steam's folder, copies Circinus made in Mods" onclick={() => store.updateMods(updates.map((u) => u.uid))}>Update {updates.length} mod{updates.length === 1 ? "" : "s"}</button>
       {/if}
     </div>
   </section>
@@ -105,8 +105,8 @@
       <div class="list">
         {#each updates.slice(0, 100) as u (u.uid)}
           <div class="it upd">
-            <span class="nm"><b>{u.name}</b><span>on disk {when(u.localModified)} · Workshop {when(u.remoteUpdated)}{u.source === "workshop" ? " · Steam updates this one itself" : ""}</span></span>
-            <button class="btn sm" onclick={() => store.queueIds([u.publishedFileId])}>Re-download</button>
+            <span class="nm"><b>{u.name}</b><span>on disk {when(u.localModified)} · Workshop {when(u.remoteUpdated)}{u.source === "workshop" ? " · goes into Steam's folder" : " · replaces your copy in Mods"}</span></span>
+            <button class="btn sm" onclick={() => store.updateMods([u.uid])}>Update</button>
           </div>
         {/each}
       </div>

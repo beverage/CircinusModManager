@@ -20,7 +20,9 @@ use std::time::UNIX_EPOCH;
 // 5: `ModInfo::updated` carries Steam's timeupdated on its own. A cached row from 4 has no such
 // field and would deserialize as "never updated", which is a wrong answer rather than a missing
 // one, so every mod is read again once.
-const PARSER_VERSION: u32 = 5;
+// 6: a local folder counts as a SteamCMD download only when it is named after its Workshop id.
+// Rows cached by 5 may mark a dev build as one, and would keep doing so.
+const PARSER_VERSION: u32 = 6;
 
 /// File inventory kept out of `ModInfo` (too large for the UI): relative paths from the mod
 /// root, lowercase, forward slashes. Textures are stored without extension because RimWorld
@@ -347,7 +349,12 @@ fn parse_quick(c: &Candidate, gv: &GameVersion) -> ModInfo {
     if info.source == Source::Local && c.real.join(".git").exists() {
         info.source = Source::Git;
     }
-    if info.source == Source::Local && info.published_file_id.is_some() && about_dir.as_ref().and_then(|d| find_entry(d, "PublishedFileId.txt")).is_some() {
+    // The file alone is not enough either. Every build of a published mod carries it, so a dev
+    // build would count as a download, be listed as out of date, and be offered Force update.
+    // SteamCMD downloads and Keep my own copy always create a real folder named after the
+    // Workshop id, so that is what counts.
+    let named_for_item = info.published_file_id.is_some_and(|id| c.path.file_name().is_some_and(|n| n.to_string_lossy() == id.to_string()));
+    if info.source == Source::Local && named_for_item && c.real == c.path && about_dir.as_ref().and_then(|d| find_entry(d, "PublishedFileId.txt")).is_some() {
         info.source = Source::SteamCmd;
     }
     info.preview = about_dir.as_ref().and_then(|d| find_entry(d, "Preview.png"));
@@ -509,13 +516,14 @@ mod tests {
         write(&dir.join("Version.txt"), "1.6.4530 rev1235");
         write(&dir.join("Data/Core/About/About.xml"), "<ModMetaData><packageId>Ludeon.RimWorld</packageId></ModMetaData>");
         write(&dir.join("Data/Royalty/About/About.xml"), "<ModMetaData><packageId>Ludeon.RimWorld.Royalty</packageId><steamAppId>1149640</steamAppId></ModMetaData>");
+        // A SteamCMD download: named after the item, with the id file SteamCMD mods carry.
         write(
-            &dir.join("Mods/Harmony/About/About.xml"),
+            &dir.join("Mods/2009463077/About/About.xml"),
             "<ModMetaData><packageId>brrainz.harmony</packageId><name>Harmony</name><author>Brrainz</author><supportedVersions><li>1.5</li><li>1.6</li></supportedVersions></ModMetaData>",
         );
-        write(&dir.join("Mods/Harmony/About/PublishedFileId.txt"), "2009463077\n");
-        write(&dir.join("Mods/Harmony/Current/Assemblies/0Harmony.dll"), "x");
-        write(&dir.join("Mods/Harmony/Current/Assemblies/HarmonyMod.dll"), "x");
+        write(&dir.join("Mods/2009463077/About/PublishedFileId.txt"), "2009463077\n");
+        write(&dir.join("Mods/2009463077/Current/Assemblies/0Harmony.dll"), "x");
+        write(&dir.join("Mods/2009463077/Current/Assemblies/HarmonyMod.dll"), "x");
         write(
             &dir.join("Mods/Walls/About/About.xml"),
             "<ModMetaData><packageId>nyx.retrowalls</packageId><name>Retro Wall Textures</name><supportedVersions><li>1.6</li></supportedVersions></ModMetaData>",
@@ -575,6 +583,33 @@ mod tests {
     /// the platform's own separator; anything asserted against it has to be built the same way.
     fn at(base: &std::path::Path, rel: &str) -> std::path::PathBuf {
         rel.split('/').fold(base.to_path_buf(), |p, part| p.join(part))
+    }
+
+    /// Every build of a published mod carries its `PublishedFileId.txt`, so the file alone does
+    /// not make a folder a download. A dev build, or a link named after the Workshop id, stays
+    /// Local and keeps its id. Only a real folder named after the id counts.
+    #[test]
+    fn only_a_real_folder_named_after_its_item_is_a_download() {
+        let tmp = tempfile::tempdir().unwrap();
+        let loc = fixture_game(tmp.path());
+        write(
+            &tmp.path().join("Mods/LoadingProgressDev/About/About.xml"),
+            "<ModMetaData><packageId>ilyvion.loadingprogress</packageId><name>Loading Progress (dev)</name><supportedVersions><li>1.6</li></supportedVersions></ModMetaData>",
+        );
+        write(&tmp.path().join("Mods/LoadingProgressDev/About/PublishedFileId.txt"), "3535481557");
+        let work = at(tmp.path(), "workspace/3799021999");
+        write(&work.join("About/About.xml"), "<ModMetaData><packageId>example.linkedbyid</packageId><name>Linked</name><supportedVersions><li>1.6</li></supportedVersions></ModMetaData>");
+        write(&work.join("About/PublishedFileId.txt"), "3799021999");
+        link_dir(&work, &at(tmp.path(), "Mods/3799021999"));
+
+        let opts = ScanOptions { locations: loc, game_version: GameVersion::parse("1.6.4530 rev1235").unwrap(), use_cache: false, workshop_updated: HashMap::new() };
+        let out = scan(&opts, None, true, &|_, _| {}).unwrap();
+        let by_id = |id: &str| out.mods.iter().find(|m| m.package_id == id).unwrap();
+        let dev = by_id("ilyvion.loadingprogress");
+        assert_eq!(dev.source, Source::Local);
+        assert_eq!(dev.published_file_id, Some(3535481557), "it still knows where the mod is published");
+        assert_eq!(by_id("example.linkedbyid").source, Source::Local, "a link is never a SteamCMD download");
+        assert_eq!(by_id("brrainz.harmony").source, Source::SteamCmd);
     }
 
     /// Modmixer and Circinus Dev Tools keep a mod in a workspace and put a link named after a

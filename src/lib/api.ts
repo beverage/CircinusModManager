@@ -46,6 +46,7 @@ export const api = {
   // downloads
   downloadsState: () => invoke<QueueState>("downloads_state"),
   downloadsAdd: (ids: number[]) => invoke<AddResult>("downloads_add", { ids }),
+  downloadsUpdate: (uids: string[]) => invoke<AddResult>("downloads_update", { uids }),
   downloadsAddText: (text: string) => invoke<AddResult>("downloads_add_text", { text }),
   downloadsRemove: (ids: number[]) => invoke<QueueState>("downloads_remove", { ids }),
   downloadsRetryFailed: () => invoke<number>("downloads_retry_failed"),

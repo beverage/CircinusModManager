@@ -87,7 +87,9 @@
   /** Steam can only unsubscribe from what it put there, so only those are offered. */
   const subscribed = $derived(mods.filter((x) => x.publishedFileId && x.source === "workshop" && store.subscriptions[x.publishedFileId] !== "absent"));
   const workshopUrl = (x: ModInfo) => (x.publishedFileId ? `https://steamcommunity.com/sharedfiles/filedetails/?id=${x.publishedFileId}` : x.url);
-  const redownloadable = $derived(mods.filter((x) => x.publishedFileId && x.source !== "ludeon"));
+  /** Force update replaces a mod in the folder it is installed in: Steam's folder for a Steam mod,
+   *  Mods for a copy Circinus made. Other local folders are never offered it. */
+  const redownloadable = $derived(mods.filter((x) => x.publishedFileId && (x.source === "workshop" || x.source === "steamcmd")));
 </script>
 
 <svelte:window onmousedown={onWindowDown} />
@@ -176,7 +178,7 @@
       >{@html I.save}Keep my own copy{localizable.length > 1 ? ` (${localizable.length})` : ""}</button>
     {/if}
     {#if redownloadable.length}
-      <button class="it" role="menuitem" title="Fetches a fresh copy from the Workshop with SteamCMD into your Mods folder. RimWorld prefers that copy over the Steam one." onclick={() => run(() => store.queueIds(redownloadable.map((x) => x.publishedFileId!)))}>{@html I.download}Force update: re-download{redownloadable.length > 1 ? ` (${redownloadable.length})` : ""}</button>
+      <button class="it" role="menuitem" title="Downloads the current version with SteamCMD into the folder the mod is installed in: Steam's folder for a Steam mod, Mods for a copy Circinus made. Other local folders are never changed." onclick={() => run(() => store.updateMods(redownloadable.map((x) => x.uid)))}>{@html I.download}Force update{redownloadable.length > 1 ? ` (${redownloadable.length})` : ""}</button>
     {/if}
     {#if workshopOnly && subscribed.length}
       {#if confirmUnsub}

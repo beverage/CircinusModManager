@@ -573,6 +573,8 @@ export interface QueueItem {
   path?: string;
   addedAt: number;
   finishedAt?: number;
+  /** Steam's folder for this item when it is a Force update of a Steam mod. */
+  intoSteam?: string;
 }
 
 export interface BatchStats {

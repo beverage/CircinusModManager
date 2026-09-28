@@ -862,6 +862,17 @@ pub async fn downloads_add(dl: Dl<'_>, ids: Vec<u64>) -> CmdResult<AddResult> {
     Ok(dl.add(ids).await)
 }
 
+/// Force update: download mods again with SteamCMD into the folder each is installed in, Steam's
+/// own folder for a Steam mod and Mods for a copy Circinus made. Anything else is refused with a
+/// reason.
+#[tauri::command]
+pub async fn downloads_update(dl: Dl<'_>, state: State<'_, Shared>, uids: Vec<String>) -> CmdResult<AddResult> {
+    let (targets, refused) = with_app(&state, move |app| Ok(app.update_targets(&uids))).await?;
+    let mut result = if targets.is_empty() { AddResult { added: 0, skipped: Vec::new() } } else { dl.add_to(targets).await };
+    result.skipped.extend(refused);
+    Ok(result)
+}
+
 /// Workshop URLs, ids or pasted text; single collection links are expanded.
 #[tauri::command]
 pub async fn downloads_add_text(dl: Dl<'_>, text: String) -> CmdResult<AddResult> {

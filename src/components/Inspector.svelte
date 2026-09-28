@@ -15,7 +15,12 @@
   const isActive = $derived(m ? store.activeSet.has(m.uid) : false);
   const change = $derived(m ? store.changeByUid.get(m.uid) : undefined);
   const update = $derived(m ? store.updateByUid.get(m.uid) : undefined);
-  const canRedownload = $derived(!!m?.publishedFileId && m.source !== "ludeon");
+  /** Force update replaces a mod in the folder it is installed in, so only Steam mods and copies
+   *  Circinus made get it. Other local folders are left alone. */
+  const canRedownload = $derived(!!m?.publishedFileId && (m.source === "workshop" || m.source === "steamcmd"));
+  const forceUpdateHint = $derived(
+    m?.source === "workshop" ? "Downloads the current version with SteamCMD and puts it in Steam's folder, in place of Steam's copy" : "Downloads the current version with SteamCMD and puts it in place of your copy in Mods"
+  );
   /** Steam can only unsubscribe from what it put there: a Workshop folder it still lists. */
   const canUnsubscribe = $derived(!!m?.publishedFileId && m.source === "workshop" && store.subscriptions[m.publishedFileId] !== "absent");
   let confirmUnsub = $state(false);
@@ -147,10 +152,10 @@
       <section class="card changed">
         <h3>{change ? "Changed since last launch" : "Newer on the Workshop"}</h3>
         {#if change}<div class="chg"><span class="flag chg">{@html change.kind === "added" ? I.plus : I.change}</span><span>{describeChange(change)}</span></div>{/if}
-        {#if update}<div class="chg"><span class="flag note">{@html I.up}</span><span>Workshop version from {new Date(update.remoteUpdated * 1000).toLocaleDateString()}; yours is from {new Date(update.localModified * 1000).toLocaleDateString()}.{update.source === "workshop" ? " Steam updates it when the game next starts." : ""}</span></div>{/if}
+        {#if update}<div class="chg"><span class="flag note">{@html I.up}</span><span>Workshop version from {new Date(update.remoteUpdated * 1000).toLocaleDateString()}; yours is from {new Date(update.localModified * 1000).toLocaleDateString()}.{update.source === "workshop" ? " Force update puts the new version in Steam's folder." : " Force update replaces your copy in Mods."}</span></div>{/if}
         <div class="acts two">
           {#if m.publishedFileId}<button class="btn" onclick={() => openUrl(`https://steamcommunity.com/sharedfiles/filedetails/changelog/${m.publishedFileId}`)}>Changelog</button>{/if}
-          {#if canRedownload}<button class="btn" onclick={() => store.queueIds([m.publishedFileId!])}>{@html I.download}Re-download</button>{/if}
+          {#if canRedownload}<button class="btn" title={forceUpdateHint} onclick={() => store.updateMods([m.uid])}>{@html I.download}Force update</button>{/if}
         </div>
       </section>
     {/if}
@@ -295,7 +300,7 @@
       <div class="acts">
         <button class="btn" title={m.linkTarget ? "Opens the folder the link points at, where the files are" : "Opens the mod's own folder in your file manager"} onclick={() => store.openFolder(m.linkTarget ?? m.path)}>{@html I.folder}Open folder</button>
         <button class="btn" disabled={!workshopUrl()} onclick={() => openUrl(workshopUrl()!)}>Workshop page</button>
-        {#if canRedownload && !change && !update}<button class="btn" title="Fetch a fresh copy from the Workshop with SteamCMD, into your Mods folder" onclick={() => store.queueIds([m.publishedFileId!])}>{@html I.download}Re-download</button>{/if}
+        {#if canRedownload && !change && !update}<button class="btn" title={forceUpdateHint} onclick={() => store.updateMods([m.uid])}>{@html I.download}Force update</button>{/if}
         {#if m.contents.textures > 0 && !ddsExcluded && m.source !== "ludeon"}<button class="btn" title="Convert this mod's PNG textures to DDS" disabled={store.tex?.running} onclick={() => store.optimizeTextures([m.uid])}>{@html I.image}Make DDS</button>{/if}
         {#if dds}<button class="btn" title="Delete the DDS files Circinus made for this mod" disabled={store.tex?.running} onclick={() => store.revertTextures([m.uid])}>Remove DDS</button>{/if}
         {#if canUnsubscribe}

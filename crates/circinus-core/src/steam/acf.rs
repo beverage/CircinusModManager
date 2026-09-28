@@ -1,7 +1,7 @@
 //! Valve KeyValues text format (`.acf` / `.vdf`): just enough to read and rewrite
 //! `appworkshop_294100.acf` so SteamCMD forgets an item we moved away.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
@@ -182,6 +182,20 @@ pub fn forget_items(text: &str, ids: &[u64]) -> (String, Vec<u64>) {
     (to_string(&root), removed.into_keys().collect())
 }
 
+/// Every item either section names, in id order: what `forget_items` would have to be given to
+/// leave the file listing nothing.
+pub fn listed_items(text: &str) -> Vec<u64> {
+    let root = parse(text);
+    let Some(app) = root.get("AppWorkshop") else { return Vec::new() };
+    let mut ids = BTreeSet::new();
+    for section in ["WorkshopItemsInstalled", "WorkshopItemDetails"] {
+        if let Some(sec) = app.get(section) {
+            ids.extend(sec.keys().iter().filter_map(|k| k.parse::<u64>().ok()));
+        }
+    }
+    ids.into_iter().collect()
+}
+
 /// Items SteamCMD/Steam believes are installed, with their `timeupdated` where present.
 pub fn installed_items(text: &str) -> Vec<(u64, Option<u64>)> {
     let root = parse(text);
@@ -239,6 +253,16 @@ mod tests {
         assert_eq!(v, again);
         let items = installed_items(ACF);
         assert_eq!(items, vec![(2009463077, Some(1700000000)), (818773962, Some(1700000001))]);
+    }
+
+    #[test]
+    fn lists_items_from_both_sections() {
+        // 555 is described but not installed; forgetting has to reach it all the same.
+        let text = ACF.replace("\"WorkshopItemDetails\"\n\t{\n", "\"WorkshopItemDetails\"\n\t{\n\t\t\"555\"\n\t\t{\n\t\t}\n");
+        assert_eq!(listed_items(&text), vec![555, 818773962, 2009463077]);
+        assert!(listed_items("").is_empty());
+        let (emptied, _) = forget_items(&text, &listed_items(&text));
+        assert!(listed_items(&emptied).is_empty());
     }
 
     #[test]

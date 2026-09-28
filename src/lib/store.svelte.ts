@@ -1106,6 +1106,17 @@ class Store {
       return r;
     });
   }
+  /** Force update: a Steam mod is replaced in Steam's folder, a copy Circinus made in Mods.
+   *  The backend refuses anything else, and the reasons are shown rather than just counted. */
+  async updateMods(uids: string[]) {
+    if (!uids.length) return;
+    return this.run("Looking up on Steam…", async () => {
+      const r = await api.downloadsUpdate(uids);
+      this.downloads = await api.downloadsState();
+      this.say(`${r.added} queued${r.skipped.length ? ` · ${r.skipped.length} skipped: ${r.skipped.map(([, why]) => why).join("; ")}` : ""}`, r.skipped.length ? "warn" : "ok");
+      return r;
+    });
+  }
   async queueMissing() {
     return this.run("Resolving missing mods…", async () => {
       const [r, unresolved] = await api.downloadsAddMissing();

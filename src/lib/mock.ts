@@ -1245,6 +1245,7 @@ export async function invoke<T>(cmd: string, args: Record<string, unknown> = {})
       return (bare ? { ...q, items: [], running: false, currentBatch: [], currentItem: null, steamcmdInstalled: false, log: [] } : q) as T;
     }
     case "downloads_add":
+    case "downloads_update":
     case "downloads_add_text":
       return { added: 2, skipped: [[1, "not a RimWorld workshop item"]] } as T;
     case "downloads_add_missing":

@@ -1,11 +1,13 @@
 //! The download manager: one background task that feeds SteamCMD batches from the queue,
-//! honours the throttle, moves finished mods into the Mods folder and publishes progress.
+//! honours the throttle, moves finished mods into the Mods folder (or, for a Force update of a
+//! Steam mod, into Steam's own folder) and publishes progress.
 
 use crate::commands::Shared;
-use circinus_core::steam::steamcmd::{ItemStatus, QueueState, SteamCmd, BATCH_PAUSE, STALL_TIMEOUT};
+use circinus_core::steam::steamcmd::{placement, ItemStatus, Placement, QueueState, SteamCmd, BATCH_PAUSE, STALL_TIMEOUT};
 use circinus_core::steam::webapi;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Notify;
@@ -119,6 +121,14 @@ impl Downloads {
     /// Queue ids. Looks the ids up on Steam to name them and to skip things that are not
     /// RimWorld mods; if Steam does not answer, they are queued by number.
     pub async fn add(&self, ids: Vec<u64>) -> AddResult {
+        self.add_to(ids.into_iter().map(|id| (id, None)).collect()).await
+    }
+
+    /// `add`, with where each download goes: `Some` is Steam's folder of a subscribed mod, which
+    /// the download replaces (Force update of a Steam mod), `None` is `Mods/<id>`.
+    pub async fn add_to(&self, targets: Vec<(u64, Option<String>)>) -> AddResult {
+        let ids: Vec<u64> = targets.iter().map(|(id, _)| *id).collect();
+        let into_steam: HashMap<u64, String> = targets.into_iter().filter_map(|(id, dest)| dest.map(|d| (id, d))).collect();
         let mut names = self.known_names(&ids);
         let mut skipped = Vec::new();
         let mut accepted: Vec<u64> = Vec::new();
@@ -142,7 +152,7 @@ impl Downloads {
         }
         let added = {
             let mut s = self.state.lock().unwrap();
-            s.add(&accepted, &names, now())
+            s.add_to(&accepted, &into_steam, &names, now())
         };
         self.persist();
         self.emit();
@@ -315,8 +325,17 @@ impl Downloads {
             self.persist();
             self.emit();
             let cmd = self.steamcmd();
-            let ids: Vec<u64> = batch.iter().map(|(id, _)| *id).collect();
-            let _ = cmd.forget(&ids);
+            // Everything SteamCMD still lists, not only this batch: an item left on its list with
+            // no files trips up the next download that shares a file with it, and SteamCMD then
+            // downloads it again in the background of that batch.
+            if let Ok(forgotten) = cmd.forget_everything() {
+                let stale = forgotten.iter().filter(|id| !batch.iter().any(|(b, _)| b == *id)).count();
+                if stale > 0 {
+                    if let Ok(mut s) = self.state.lock() {
+                        s.push_log(&format!("Cleared {stale} items SteamCMD was still holding from earlier batches"));
+                    }
+                }
+            }
             let me = self.clone();
             let mut last_emit = std::time::Instant::now();
             let mut on_line = move |line: &str| {
@@ -332,7 +351,7 @@ impl Downloads {
                 }
             };
             let outcome = cmd.run_batch(&batch, STALL_TIMEOUT, &mut on_line).await;
-            let mods_dir = self.app.lock().ok().and_then(|a| a.locations.local_mods_dir.clone());
+            let (mods_dir, workshop_dir) = self.app.lock().map(|a| (a.locations.local_mods_dir.clone(), a.locations.workshop_dir.clone())).unwrap_or((None, None));
             let mut any_done = false;
             match outcome {
                 Ok(outcome) => {
@@ -341,9 +360,11 @@ impl Downloads {
                         s.apply(&outcome, now())
                     };
                     for id in done {
-                        let placed = match &mods_dir {
-                            Some(dir) => cmd.collect(id, dir).map(|p| p.display().to_string()),
-                            None => Err(circinus_core::Error::Other("no local Mods folder is configured".into())),
+                        let into_steam = self.state.lock().ok().and_then(|s| s.items.iter().find(|i| i.id == id).and_then(|i| i.into_steam.clone()));
+                        let placed = match placement(into_steam.as_deref().map(Path::new), mods_dir.as_deref(), workshop_dir.as_deref()) {
+                            Placement::SteamCopy(copy) => cmd.replace_workshop_copy(id, &copy).map(|p| p.display().to_string()).map_err(|e| format!("Downloaded but could not be put in Steam's folder: {e}")),
+                            Placement::Mods(dir) => cmd.collect(id, &dir).map(|p| p.display().to_string()).map_err(|e| format!("Downloaded but could not be moved into Mods: {e}")),
+                            Placement::Refused(why) => Err(why),
                         };
                         let mut s = self.state.lock().unwrap();
                         if let Some(item) = s.items.iter_mut().find(|i| i.id == id) {
@@ -354,7 +375,7 @@ impl Downloads {
                                 }
                                 Err(e) => {
                                     item.status = ItemStatus::Failed;
-                                    item.error = Some(format!("Downloaded but could not be moved into Mods: {e}"));
+                                    item.error = Some(e);
                                 }
                             }
                         }
