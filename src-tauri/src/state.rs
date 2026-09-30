@@ -1553,6 +1553,12 @@ mod tests {
         settings.locations.game_dir = Some(game.clone());
         settings.locations.config_dir = Some(game.join("Config"));
         settings.locations.local_mods_dir = Some(game.join("Mods"));
+        // An empty Workshop folder of its own. Left unset, resolve_locations() fills it from
+        // Locations::detect(), which finds the real Steam library on any machine that has one,
+        // and every mod subscribed there joins the fixture.
+        let workshop = tmp.path().join("workshop");
+        std::fs::create_dir_all(&workshop).unwrap();
+        settings.locations.workshop_dir = Some(workshop);
         let mut app = App::open_at(tmp.path().join("data"), Some(settings)).unwrap();
         let shallow = app.scan_quick(true, &|_, _| {}).unwrap();
         let ins = circinus_core::scan::inspect_mods(&shallow, &|_, _| {});
