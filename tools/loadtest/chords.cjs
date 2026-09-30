@@ -5,14 +5,16 @@
 // sniffed global, which is the only way this machine can check what a Mac would be told to press.
 //
 //   node tools/loadtest/chords.cjs
-const { execFileSync } = require('child_process');
+const { buildSync } = require('esbuild');
 const { mkdtempSync } = require('fs');
 const { tmpdir } = require('os');
 const { join } = require('path');
 
 const root = join(__dirname, '..', '..');
 const bundle = join(mkdtempSync(join(tmpdir(), 'chord-')), 'chord.cjs');
-execFileSync('npx', ['esbuild', 'src/lib/chord.ts', '--bundle', '--format=cjs', `--outfile=${bundle}`, '--log-level=error'], { cwd: root, stdio: 'inherit' });
+// esbuild's own API, as in moves.cjs: npx is a .cmd file on Windows, and Node will not start one
+// without a shell.
+buildSync({ absWorkingDir: root, entryPoints: ['src/lib/chord.ts'], bundle: true, format: 'cjs', outfile: bundle, logLevel: 'error' });
 const { chord, matches, keyLabel } = require(bundle);
 
 let failures = 0;

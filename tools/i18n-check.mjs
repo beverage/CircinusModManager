@@ -14,6 +14,7 @@
 
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Not converted yet. Remove a file when it is done; never add one. */
 const PENDING = new Set([
@@ -40,7 +41,7 @@ const PENDING = new Set([
   "TitleBar.svelte"
 ]);
 
-const ROOT = new URL("..", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DIR = join(ROOT, "src/components");
 
 /** Text between tags: `>Some words<`. A single word is usually a label already in a table, and

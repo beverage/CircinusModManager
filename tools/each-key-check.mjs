@@ -17,8 +17,9 @@
 
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const DIR = new URL("../src/components", import.meta.url).pathname;
+const DIR = fileURLToPath(new URL("../src/components", import.meta.url));
 
 /** `{#each thing as x, i (key)}` and `{#each thing as x (key)}`. */
 const EACH = /\{#each\s+([\s\S]*?)\s+as\s+([A-Za-z0-9_$[\]{},\s]+?)\s*\(([^)]*)\)\s*\}/g;
