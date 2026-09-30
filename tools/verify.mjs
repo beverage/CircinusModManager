@@ -3,11 +3,12 @@
 //
 //   npm run verify
 //
-// This is the list tools/release.mjs runs before it tags, which the release workflow also runs
-// on Windows, macOS and Linux before it builds: the front-end checks and a production build, the
-// loadtests that need no browser, and cargo test. cargo clippy runs as well, as CLAUDE.md asks.
-// Its warnings are listed but do not fail the run, because the ones already in the code would
-// fail every run; an error still does. The Checks workflow runs this same command on every push
+// This is the list tools/release.mjs runs before it tags: the front-end checks and a production
+// build, three loadtests and cargo test. The release workflow runs most of it again on Windows,
+// macOS and Linux before it builds. Two more loadtests that need no browser, moves and chords,
+// run here as well, and so does cargo clippy, as CLAUDE.md asks. Clippy's warnings are listed
+// but do not fail the run, because the ones already in the code would fail every run; an error
+// still does. The Checks workflow runs this same command on every push
 // to main and every pull request, so this file is the one place the list is kept.
 //
 // Every step runs even after one fails, so a single run shows everything there is to fix.
