@@ -3,13 +3,15 @@
 // the module is bundled with esbuild and called directly.
 //
 // node tools/loadtest/moves.cjs
-const { execFileSync } = require('child_process');
+const { buildSync } = require('esbuild');
 const path = require('path');
 const os = require('os');
 
 const root = path.resolve(__dirname, '..', '..');
 const bundle = path.join(os.tmpdir(), `circinus-moves-${process.pid}.cjs`);
-execFileSync('npx', ['esbuild', 'src/lib/moves.ts', '--bundle', '--format=cjs', `--outfile=${bundle}`, '--log-level=error'], { cwd: root, stdio: 'inherit' });
+// esbuild's own API rather than `npx esbuild`: npx is a .cmd file on Windows, and Node will not
+// start one without a shell.
+buildSync({ absWorkingDir: root, entryPoints: ['src/lib/moves.ts'], bundle: true, format: 'cjs', outfile: bundle, logLevel: 'error' });
 const { analyseMoves } = require(bundle);
 
 let failures = 0;

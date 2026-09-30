@@ -684,8 +684,9 @@ runs it. Do not reintroduce a build-time dependency on the .NET SDK.
 Comments explain *why*, in prose, and the code is written to be read. User-facing text is plain
 English with no jargon and no exclamation marks: say what happened and what it means. Errors name
 the thing that went wrong and what it costs the user. No `unsafe`, no `unwrap` in library paths.
-Rust lines are wide (see `rustfmt.toml` if present); run `cargo test`, `cargo clippy` and
-`npx svelte-check` before calling anything done.
+Rust lines are wide (see `rustfmt.toml` if present); run `npm run verify` before calling anything
+done. It runs `cargo test`, `cargo clippy`, `npm run check` and the build, plus the loadtests that
+need no browser: the list the release runs, and what the Checks workflow runs on every push.
 
 Verify UI work in a real browser rather than by eye: `npm run build`, `npx vite preview`, then a
 script under `tools/loadtest/` driving Playwright against `127.0.0.1:4173` with the mock data in

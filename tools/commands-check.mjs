@@ -17,8 +17,9 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const api = readFileSync(join(ROOT, "src/lib/api.ts"), "utf8");
 const lib = readFileSync(join(ROOT, "src-tauri/src/lib.rs"), "utf8");
 const capability = readFileSync(join(ROOT, "src-tauri/capabilities/default.json"), "utf8");
