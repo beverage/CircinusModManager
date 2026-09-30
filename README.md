@@ -43,6 +43,7 @@ npm run tauri dev        # full app: Rust backend + hot-reloading UI
 npm run dev              # UI only, in the browser, with example data
 cargo test -p circinus-core
 npm run check            # svelte-check
+npm run verify           # everything the release checks, before you push
 ```
 
 `npm run tauri dev` builds a debug binary that loads the UI from Vite's dev server, so it only

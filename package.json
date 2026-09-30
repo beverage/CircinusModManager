@@ -10,6 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json && node tools/i18n-check.mjs && node tools/commands-check.mjs && node tools/each-key-check.mjs",
+    "verify": "node tools/verify.mjs",
     "tauri": "tauri",
     "release": "tauri build",
     "release:cut": "node tools/release.mjs",
